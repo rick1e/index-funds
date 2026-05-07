@@ -372,6 +372,29 @@
     }
 
     .error-msg.hidden { display: none; }
+
+    /* ── Mobile ────────────────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      body { padding: 1rem; }
+
+      .page-layout { flex-direction: column; }
+      .sidebar { width: 100%; }
+      .fund-panel { width: 100%; }
+
+      .ctrl-group { width: 100%; }
+      select { width: 100%; }
+
+      .rbtn { padding: 8px 14px; }
+      .pill { padding: 14px 16px; }
+
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+
+      .chart-wrap { height: 220px; }
+
+      /* table: keep all columns, let user swipe */
+      .chart-card { overflow-x: auto; }
+      table { min-width: 520px; }
+    }
   </style>
 </head>
 <body>
