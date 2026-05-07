@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Fund Performance Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f8f7f4;
+      --surface: #ffffff;
+      --border: rgba(0,0,0,0.08);
+      --border-md: rgba(0,0,0,0.14);
+      --text: #1a1a18;
+      --muted: #6b6b67;
+      --hint: #9b9b96;
+      --green: #0F6E56;
+      --red: #993C1D;
+      --blue: #185FA5;
+      --coral: #993C1D;
+      --purple: #534AB7;
+      --amber: #854F0B;
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+
+    body {
+      font-family: 'Georgia', serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    header {
+      margin-bottom: 2rem;
+    }
+
+    header h1 {
+      font-size: 1.6rem;
+      font-weight: normal;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+
+    header p {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 4px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .config-banner {
+      background: #fff8e6;
+      border: 0.5px solid #e8c96a;
+      border-radius: var(--radius-sm);
+      padding: 12px 16px;
+      margin-bottom: 1.5rem;
+      font-size: 0.8rem;
+      color: #7a5a00;
+      font-family: 'Courier New', monospace;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .config-banner.hidden { display: none; }
+
+    .ctrl-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .ctrl-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--hint);
+      font-family: 'Courier New', monospace;
+    }
+
+    .fund-groups { display: flex; flex-direction: column; gap: 0; }
+
+    /* Scrollable panel body */
+    .fund-panel-body {
+      max-height: 420px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border-md) transparent;
+    }
+    .fund-panel-body::-webkit-scrollbar { width: 4px; }
+    .fund-panel-body::-webkit-scrollbar-track { background: transparent; }
+    .fund-panel-body::-webkit-scrollbar-thumb { background: var(--border-md); border-radius: 2px; }
+
+    /* Accordion broker header */
+    .broker-group { display: flex; flex-direction: column; border-bottom: 0.5px solid var(--border); }
+    .broker-group:last-child { border-bottom: none; }
+
+    .broker-accordion-btn {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg);
+      border: none;
+      cursor: pointer;
+      font-family: 'Courier New', monospace;
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      transition: background .12s;
+      gap: 8px;
+    }
+    .broker-accordion-btn:hover { background: #efefeb; }
+    .broker-accordion-left { display: flex; align-items: center; gap: 6px; }
+    .broker-chevron {
+      font-size: 0.6rem;
+      transition: transform .2s ease;
+      color: var(--hint);
+      flex-shrink: 0;
+    }
+    .broker-chevron.open { transform: rotate(180deg); }
+
+    /* Accordion body — animated open/close */
+    .fund-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      overflow: hidden;
+      max-height: 0;
+      transition: max-height .25s ease;
+    }
+    .fund-pills.open { max-height: 600px; }
+
+    .pill {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: none;
+      border-top: 0.5px solid var(--border);
+      border-radius: 0;
+      padding: 11px 14px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--text);
+      transition: background .12s;
+      font-family: 'Georgia', serif;
+      text-align: left;
+      width: 100%;
+    }
+    .pill:hover { background: var(--bg); }
+    .pill.active {
+      background: var(--pill-color, var(--text));
+      color: #fff;
+      border-color: transparent;
+    }
+    .pill.active + .pill { border-top-color: transparent; }
+    .pill-inner { display: flex; flex-direction: column; gap: 2px; }
+    .pill-name { font-size: 0.82rem; font-weight: bold; letter-spacing: 0.01em; }
+    .pill-sub  { font-size: 0.68rem; opacity: 0.7; font-family: 'Courier New', monospace; }
+    .pill-icon {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      border: 1.5px solid currentColor;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-size: 0.75rem;
+      font-family: 'Courier New', monospace;
+      line-height: 1;
+      padding-bottom: 1px;
+      opacity: 0.6;
+      transition: opacity .12s;
+    }
+    .pill.active .pill-icon { opacity: 1; border-color: rgba(255,255,255,0.7); }
+
+    .fund-panel {
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      width: 220px;
+      flex-shrink: 0;
+    }
+    .fund-panel-title {
+      font-size: 0.72rem;
+      font-weight: bold;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 12px 14px 10px;
+      border-bottom: 0.5px solid var(--border);
+      font-family: 'Courier New', monospace;
+      color: var(--text);
+    }
+
+    .page-layout {
+      display: flex;
+      gap: 1.5rem;
+      align-items: flex-start;
+    }
+    .sidebar { flex-shrink: 0; width: 220px; }
+    .main-content { flex: 1; min-width: 0; }
+    .top-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+      margin-bottom: 1.5rem;
+    }
+
+    .range-btns { display: flex; gap: 3px; }
+
+    .rbtn {
+      border: 0.5px solid var(--border-md);
+      border-radius: var(--radius-sm);
+      padding: 5px 11px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      background: var(--surface);
+      color: var(--muted);
+      transition: all .15s;
+      font-family: 'Courier New', monospace;
+    }
+
+    .rbtn:hover { border-color: var(--text); color: var(--text); }
+    .rbtn.active { background: var(--text); color: #fff; border-color: var(--text); }
+
+    select {
+      font-size: 0.75rem;
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+      border: 0.5px solid var(--border-md);
+      background: var(--surface);
+      color: var(--text);
+      font-family: 'Courier New', monospace;
+      cursor: pointer;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin-bottom: 1.5rem;
+    }
+
+    .mcard {
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .mcard-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--hint);
+      margin-bottom: 6px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .mcard-val {
+      font-size: 1.3rem;
+      font-weight: normal;
+      letter-spacing: -0.02em;
+    }
+
+    .mcard-val.pos { color: var(--green); }
+    .mcard-val.neg { color: var(--red); }
+
+    .chart-card {
+      background: var(--surface);
+      border: 0.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-bottom: 1rem;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: 'Courier New', monospace;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .chart-wrap {
+      position: relative;
+      width: 100%;
+      height: 280px;
+    }
+
+    .loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface);
+      border-radius: var(--radius);
+      font-size: 0.8rem;
+      color: var(--hint);
+      font-family: 'Courier New', monospace;
+      z-index: 10;
+    }
+
+    .loading-overlay.hidden { display: none; }
+
+    table {
+      width: 100%;
+      font-size: 0.75rem;
+      border-collapse: collapse;
+      font-family: 'Courier New', monospace;
+    }
+
+    th {
+      text-align: left;
+      padding: 8px 12px;
+      font-weight: normal;
+      color: var(--hint);
+      border-bottom: 0.5px solid var(--border);
+      text-transform: uppercase;
+      font-size: 0.65rem;
+      letter-spacing: 0.06em;
+    }
+
+    td {
+      padding: 9px 12px;
+      border-bottom: 0.5px solid var(--border);
+      color: var(--text);
+    }
+
+    td.pos { color: var(--green); }
+    td.neg { color: var(--red); }
+
+    .dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-right: 7px;
+      flex-shrink: 0;
+    }
+
+    .error-msg {
+      font-size: 0.75rem;
+      color: var(--red);
+      font-family: 'Courier New', monospace;
+      padding: 8px 0;
+    }
+
+    .error-msg.hidden { display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Fund Performance</h1>
+  <p>fund_prices · supabase</p>
+</header>
+
+<div class="config-banner" id="config-banner">
+  ⚠ Demo mode — replace SUPABASE_URL and SUPABASE_ANON_KEY in the script to connect to your database.
+</div>
+
+<div class="page-layout">
+
+<!-- ── Sidebar fund selector ── -->
+<div class="sidebar">
+  <div class="fund-panel">
+    <div class="fund-panel-title">Compare Funds</div>
+    <div class="fund-panel-body">
+      <div id="fund-groups"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main content ── -->
+<div class="main-content">
+
+<div class="top-controls">
+  <div class="ctrl-group">
+    <span class="ctrl-label">Range</span>
+    <div class="range-btns">
+      <button class="rbtn" data-y="1">1Y</button>
+      <button class="rbtn active" data-y="3">3Y</button>
+      <button class="rbtn" data-y="5">5Y</button>
+      <button class="rbtn" data-y="10">10Y</button>
+    </div>
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">View</span>
+    <select id="view-select">
+      <option value="price">Raw price</option>
+      <option value="growth">$10k growth</option>
+      <option value="return">Cumulative return %</option>
+      <option value="annual">Annual return %</option>
+    </select>
+  </div>
+</div>
+
+<div class="metrics" id="metrics"></div>
+
+<div class="chart-card">
+  <div class="legend" id="legend"></div>
+  <div class="chart-wrap">
+    <div class="loading-overlay" id="loading">fetching prices…</div>
+    <canvas id="mainChart" role="img" aria-label="Fund price chart"></canvas>
+  </div>
+  <div class="error-msg hidden" id="error-msg"></div>
+</div>
+
+<div class="chart-card">
+  <table>
+    <thead>
+      <tr>
+        <th>Fund · Broker</th>
+        <th>Total return</th>
+        <th>Ann. return</th>
+        <th>Best year</th>
+        <th>Worst year</th>
+        <th>Volatility</th>
+        <th>Sharpe</th>
+      </tr>
+    </thead>
+    <tbody id="perf-body"></tbody>
+  </table>
+</div>
+
+</div><!-- end main-content -->
+</div><!-- end page-layout -->
+
+<script>
+  // ─── CONFIG — replace these ───────────────────────────────────────────────
+  const SUPABASE_URL      = 'https://your-project-id.supabase.co'
+  const SUPABASE_ANON_KEY = 'your-anon-public-key'
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const IS_CONFIGURED = !SUPABASE_URL.includes('your-project-id')
+
+  const { createClient } = supabase
+  const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+  if (IS_CONFIGURED) {
+    document.getElementById('config-banner').classList.add('hidden')
+  }
+
+  // Each broker gets a base hue; funds within it get evenly-spaced shades
+  const BROKER_HUES = [210, 160, 20, 270, 340, 35, 190, 300, 90, 0]
+
+  function hsl(h, s, l) {
+    return `hsl(${h},${s}%,${l}%)`
+  }
+
+  // Returns an array of n visually distinct shades for a given hue
+  // Spreads from darker (good contrast) to lighter, skipping extremes
+  function brokerShades(hue, n) {
+    if (n === 1) return [hsl(hue, 65, 38)]
+    const shades = []
+    // Lightness range: 28 (dark) → 58 (medium-light), avoid too light
+    for (let i = 0; i < n; i++) {
+      const l = 28 + (i / (n - 1)) * 30
+      const s = 65 - (i / (n - 1)) * 10  // slightly desaturate lighter shades
+      shades.push(hsl(hue, s, l))
+    }
+    return shades
+  }
+
+  const RF = 0.045
+  let FUNDS = []        // loaded from DB: { id, name, color, broker_id, broker_name }
+  let BROKERS = []      // loaded from DB: { id, name }
+  let selectedFunds = new Set()
+  let selectedYears = 3
+  let viewMode = 'price'
+  let chartInstance = null
+  let cache = {}
+
+  // ── Demo data (used when Supabase credentials are not configured) ──────────
+  const DEMO_BROKERS = [
+    { id: 1, name: 'Vanguard Institutional' },
+    { id: 2, name: 'Fidelity Investments' },
+    { id: 3, name: 'BlackRock iShares' },
+  ]
+
+  const DEMO_FUNDS = [
+    { id: 1, broker_id: 1, name: 'VTSAX', sub: 'Total Stock Market',   annReturn: 0.108, vol: 0.155, start: 105.00 },
+    { id: 2, broker_id: 1, name: 'VFIAX', sub: '500 Index Fund',        annReturn: 0.109, vol: 0.153, start:  98.50 },
+    { id: 3, broker_id: 1, name: 'VEXAX', sub: 'Extended Market',       annReturn: 0.095, vol: 0.200, start:  87.20 },
+    { id: 4, broker_id: 2, name: 'FSKAX', sub: 'Total Market Index',    annReturn: 0.107, vol: 0.156, start: 112.40 },
+    { id: 5, broker_id: 2, name: 'FXAIX', sub: 'Fidelity 500 Index',   annReturn: 0.110, vol: 0.152, start: 175.30 },
+    { id: 6, broker_id: 2, name: 'FSMAX', sub: 'Extended Market',       annReturn: 0.094, vol: 0.202, start:  68.90 },
+    { id: 7, broker_id: 3, name: 'IVV',   sub: 'S&P 500 ETF',           annReturn: 0.110, vol: 0.151, start: 480.00 },
+    { id: 8, broker_id: 3, name: 'ITOT',  sub: 'Total US Market ETF',   annReturn: 0.106, vol: 0.157, start: 108.20 },
+    { id: 9, broker_id: 3, name: 'IJR',   sub: 'Small-Cap ETF',         annReturn: 0.092, vol: 0.215, start:  95.60 },
+  ]
+
+  function demoPrices(fund, years) {
+    const days = years * 252
+    const dt = 1 / 252
+    const mu = fund.annReturn, sigma = fund.vol
+    let rng = fund.id * 2654435761
+    function rand() {
+      rng = (rng * 1664525 + 1013904223) >>> 0
+      const u = rng / 0xffffffff
+      rng = (rng * 1664525 + 1013904223) >>> 0
+      const v = rng / 0xffffffff
+      return Math.sqrt(-2 * Math.log(u + 1e-10)) * Math.cos(2 * Math.PI * v)
+    }
+    const endDate = new Date(2025, 0, 1)
+    const startDate = new Date(endDate)
+    startDate.setFullYear(startDate.getFullYear() - years)
+
+    const rows = []
+    let price = fund.start
+    let date = new Date(startDate)
+    for (let i = 0; i <= days; i++) {
+      if (date.getDay() !== 0 && date.getDay() !== 6) {
+        rows.push({
+          date: date.toISOString().split('T')[0],
+          price: +price.toFixed(4)
+        })
+      }
+      price *= Math.exp((mu - 0.5 * sigma * sigma) * dt + sigma * Math.sqrt(dt) * rand())
+      date.setDate(date.getDate() + 1)
+    }
+    return rows
+  }
+
+  function loadDemoData() {
+    BROKERS = DEMO_BROKERS
+
+    const fundsByBroker = {}
+    DEMO_FUNDS.forEach(f => {
+      if (!fundsByBroker[f.broker_id]) fundsByBroker[f.broker_id] = []
+      fundsByBroker[f.broker_id].push(f)
+    })
+
+    const brokerHueMap = {}
+    Object.keys(fundsByBroker).sort().forEach((bId, i) => {
+      brokerHueMap[bId] = BROKER_HUES[i % BROKER_HUES.length]
+    })
+
+    FUNDS = []
+    Object.entries(fundsByBroker).sort().forEach(([bId, funds]) => {
+      const hue = brokerHueMap[bId]
+      const shades = brokerShades(hue, funds.length)
+      funds.forEach((f, i) => {
+        FUNDS.push({
+          id: f.id,
+          name: f.name,
+          sub: f.sub,
+          broker_id: f.broker_id,
+          broker_name: DEMO_BROKERS.find(b => b.id === f.broker_id)?.name || '',
+          color: shades[i],
+          broker_hue: hue,
+          _demo: f,   // keep raw spec for price generation
+        })
+      })
+    })
+
+    FUNDS.slice(0, 2).forEach(f => selectedFunds.add(f.id))
+  }
+
+  async function fetchDemoPrices(fundId, years) {
+    const key = `${fundId}_${years}`
+    if (cache[key]) return cache[key]
+    const spec = DEMO_FUNDS.find(f => f.id === fundId)
+    if (!spec) return []
+    const rows = demoPrices(spec, years)
+    cache[key] = rows
+    return rows
+  }
+  async function loadFundsAndBrokers() {
+    if (!IS_CONFIGURED) {
+      loadDemoData()
+      return true
+    }
+    const container = document.getElementById('fund-groups')
+    container.innerHTML = '<span style="font-size:0.75rem;color:var(--hint);font-family:\'Courier New\',monospace">loading funds…</span>'
+
+    const [{ data: brokerData, error: brokerErr }, { data: fundData, error: fundErr }] = await Promise.all([
+      db.from('brokers').select('id, name').order('name'),
+      db.from('funds').select('id, name, broker_id, brokers(name)').order('name'),
+    ])
+
+    if (brokerErr || fundErr) {
+      container.innerHTML = `<span style="color:var(--red);font-size:0.75rem;font-family:'Courier New',monospace">Error loading funds: ${(brokerErr || fundErr).message}</span>`
+      return false
+    }
+
+    BROKERS = brokerData || []
+
+    // Group funds by broker to know how many shades each needs
+    const fundsByBroker = {}
+    ;(fundData || []).forEach(f => {
+      if (!fundsByBroker[f.broker_id]) fundsByBroker[f.broker_id] = []
+      fundsByBroker[f.broker_id].push(f)
+    })
+
+    // Assign a hue per broker (sorted by broker id for consistency)
+    const brokerHueMap = {}
+    Object.keys(fundsByBroker).sort().forEach((bId, i) => {
+      brokerHueMap[bId] = BROKER_HUES[i % BROKER_HUES.length]
+    })
+
+    // Build FUNDS with shaded colors
+    FUNDS = []
+    Object.entries(fundsByBroker).sort().forEach(([bId, funds]) => {
+      const hue = brokerHueMap[bId]
+      const shades = brokerShades(hue, funds.length)
+      funds.forEach((f, i) => {
+        FUNDS.push({
+          id: f.id,
+          name: f.name,
+          broker_id: f.broker_id,
+          broker_name: f.brokers?.name || '',
+          color: shades[i],
+          broker_hue: hue,
+        })
+      })
+    })
+
+    // Default select first two funds
+    FUNDS.slice(0, 2).forEach(f => selectedFunds.add(f.id))
+
+    return true
+  }
+
+  // ── Supabase fetch ────────────────────────────────────────────────────────
+  async function fetchPrices(fundId, years) {
+    if (!IS_CONFIGURED) return fetchDemoPrices(fundId, years)
+    const key = `${fundId}_${years}`
+    if (cache[key]) return cache[key]
+
+    const since = new Date()
+    since.setFullYear(since.getFullYear() - years)
+    const sinceStr = since.toISOString().split('T')[0]
+
+    const { data, error } = await db
+      .from('fund_prices')
+      .select('date, price')
+      .eq('fund_id', fundId)
+      .gte('date', sinceStr)
+      .order('date', { ascending: true })
+
+    if (error) throw error
+    const rows = (data || []).map(r => ({ date: r.date, price: parseFloat(r.price) }))
+    cache[key] = rows
+    return rows
+  }
+
+  // ── Metrics ───────────────────────────────────────────────────────────────
+  function calcMetrics(rows, years) {
+    if (!rows || rows.length < 2) return null
+    const prices = rows.map(r => r.price)
+    const first = prices[0], last = prices[prices.length - 1]
+    const total = ((last / first) - 1) * 100
+    const ann = (Math.pow(last / first, 1 / Math.max(years, 1)) - 1) * 100
+
+    // yearly buckets
+    const byYear = {}
+    rows.forEach(r => {
+      const y = r.date.slice(0, 4)
+      if (!byYear[y]) byYear[y] = []
+      byYear[y].push(r.price)
+    })
+    let best = -Infinity, worst = Infinity
+    Object.values(byYear).forEach(yprices => {
+      if (yprices.length < 2) return
+      const r = ((yprices[yprices.length - 1] / yprices[0]) - 1) * 100
+      if (r > best) best = r
+      if (r < worst) worst = r
+    })
+
+    // monthly returns for vol
+    const step = Math.max(1, Math.floor(prices.length / (years * 12)))
+    const monthly = []
+    for (let i = step; i < prices.length; i += step) {
+      monthly.push((prices[i] / prices[i - step]) - 1)
+    }
+    const mean = monthly.reduce((a, b) => a + b, 0) / (monthly.length || 1)
+    const variance = monthly.reduce((a, b) => a + (b - mean) ** 2, 0) / (monthly.length || 1)
+    const vol = Math.sqrt(variance * 12) * 100
+    const sharpe = ((ann / 100) - RF) / (vol / 100 || 1)
+
+    return {
+      total: total.toFixed(1),
+      ann: ann.toFixed(1),
+      best: isFinite(best) ? best.toFixed(1) : '—',
+      worst: isFinite(worst) ? worst.toFixed(1) : '—',
+      vol: vol.toFixed(1),
+      sharpe: sharpe.toFixed(2),
+      latest: last.toFixed(2)
+    }
+  }
+
+  // ── Transform data for chart ──────────────────────────────────────────────
+  function transform(rows, mode) {
+    if (!rows.length) return []
+    const prices = rows.map(r => r.price)
+    if (mode === 'price') return prices.map(p => +p.toFixed(4))
+    if (mode === 'growth') return prices.map(p => +((p / prices[0]) * 10000).toFixed(2))
+    if (mode === 'return') return prices.map(p => +(((p / prices[0]) - 1) * 100).toFixed(2))
+    return prices
+  }
+
+  function annualData(rows) {
+    const byYear = {}
+    rows.forEach(r => {
+      const y = r.date.slice(0, 4)
+      if (!byYear[y]) byYear[y] = []
+      byYear[y].push(r.price)
+    })
+    const labels = [], data = []
+    Object.entries(byYear).sort().forEach(([y, prices]) => {
+      if (prices.length < 2) return
+      labels.push(y)
+      data.push(+(((prices[prices.length - 1] / prices[0]) - 1) * 100).toFixed(2))
+    })
+    return { labels, data }
+  }
+
+  // ── Render helpers ────────────────────────────────────────────────────────
+  // Track which broker accordions are open (default: all open)
+  const openBrokers = new Set()
+
+  function renderPills() {
+    const container = document.getElementById('fund-groups')
+    container.innerHTML = ''
+
+    const groups = {}
+    const groupOrder = []
+    FUNDS.forEach(f => {
+      if (!groups[f.broker_id]) {
+        groups[f.broker_id] = { name: f.broker_name, hue: f.broker_hue, funds: [] }
+        groupOrder.push(f.broker_id)
+      }
+      groups[f.broker_id].funds.push(f)
+    })
+
+    if (groupOrder.length === 0) {
+      container.innerHTML = '<div style="padding:14px;font-size:0.75rem;color:var(--hint);font-family:\'Courier New\',monospace">loading funds…</div>'
+      return
+    }
+
+    // Default all open on first render
+    if (openBrokers.size === 0) groupOrder.forEach(id => openBrokers.add(id))
+
+    groupOrder.forEach(bId => {
+      const group = groups[bId]
+      const isOpen = openBrokers.has(bId)
+      const brokerColor = hsl(group.hue, 55, 32)
+      const brokerDot   = hsl(group.hue, 60, 38)
+
+      const groupEl = document.createElement('div')
+      groupEl.className = 'broker-group'
+
+      // Count how many funds in this broker are selected
+      const selectedCount = group.funds.filter(f => selectedFunds.has(f.id)).length
+
+      // Accordion header button
+      const headerBtn = document.createElement('button')
+      headerBtn.className = 'broker-accordion-btn'
+      headerBtn.innerHTML = `
+        <div class="broker-accordion-left">
+          <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${brokerDot};flex-shrink:0"></span>
+          <span style="color:${brokerColor}">${group.name}</span>
+          ${selectedCount > 0 ? `<span style="background:${brokerDot};color:#fff;font-size:0.58rem;padding:1px 5px;border-radius:8px;letter-spacing:0">${selectedCount}</span>` : ''}
+        </div>
+        <span class="broker-chevron ${isOpen ? 'open' : ''}">▼</span>
+      `
+
+      // Pill list
+      const pillList = document.createElement('div')
+      pillList.className = 'fund-pills' + (isOpen ? ' open' : '')
+
+      group.funds.forEach(f => {
+        const isActive = selectedFunds.has(f.id)
+        const p = document.createElement('button')
+        p.className = 'pill' + (isActive ? ' active' : '')
+        p.style.setProperty('--pill-color', f.color)
+        p.innerHTML = `
+          <div class="pill-inner">
+            <div class="pill-name">${f.name}</div>
+            ${f.sub ? `<div class="pill-sub">${f.sub}</div>` : ''}
+          </div>
+          <div class="pill-icon">${isActive ? '✓' : '+'}</div>
+        `
+        p.onclick = () => {
+          if (selectedFunds.has(f.id)) { if (selectedFunds.size > 1) selectedFunds.delete(f.id) }
+          else selectedFunds.add(f.id)
+          cache = {}
+          render()
+        }
+        pillList.appendChild(p)
+      })
+
+      // Accordion toggle — don't re-render, just animate in place
+      headerBtn.onclick = () => {
+        if (openBrokers.has(bId)) {
+          openBrokers.delete(bId)
+          pillList.classList.remove('open')
+          headerBtn.querySelector('.broker-chevron').classList.remove('open')
+        } else {
+          openBrokers.add(bId)
+          pillList.classList.add('open')
+          headerBtn.querySelector('.broker-chevron').classList.add('open')
+        }
+        // Re-render just the header to update selected count badge
+        const newCount = group.funds.filter(f => selectedFunds.has(f.id)).length
+        // badge update inline
+        const badge = headerBtn.querySelector('span[style*="border-radius:8px"]')
+        if (newCount > 0 && !badge) {
+          headerBtn.querySelector('.broker-accordion-left').insertAdjacentHTML('beforeend',
+            `<span style="background:${brokerDot};color:#fff;font-size:0.58rem;padding:1px 5px;border-radius:8px;letter-spacing:0">${newCount}</span>`)
+        } else if (badge) {
+          badge.textContent = newCount
+          if (newCount === 0) badge.remove()
+        }
+      }
+
+      groupEl.appendChild(headerBtn)
+      groupEl.appendChild(pillList)
+      container.appendChild(groupEl)
+    })
+  }
+
+  function renderMetrics(fund, rows) {
+    const m = calcMetrics(rows, selectedYears)
+    if (!m) { document.getElementById('metrics').innerHTML = ''; return }
+    const annNum = parseFloat(m.ann)
+    document.getElementById('metrics').innerHTML = `
+      <div class="mcard"><div class="mcard-label">${fund.name} latest</div><div class="mcard-val">$${parseFloat(m.latest).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div>
+      <div class="mcard"><div class="mcard-label">Ann. return</div><div class="mcard-val ${annNum>=0?'pos':'neg'}">${annNum>=0?'+':''}${m.ann}%</div></div>
+      <div class="mcard"><div class="mcard-label">Total (${selectedYears}Y)</div><div class="mcard-val ${parseFloat(m.total)>=0?'pos':'neg'}">${parseFloat(m.total)>=0?'+':''}${m.total}%</div></div>
+      <div class="mcard"><div class="mcard-label">Best year</div><div class="mcard-val pos">${m.best !== '—' ? '+' : ''}${m.best}%</div></div>
+      <div class="mcard"><div class="mcard-label">Worst year</div><div class="mcard-val neg">${m.worst}%${m.worst!=='—'?'':''}</div></div>
+      <div class="mcard"><div class="mcard-label">Sharpe</div><div class="mcard-val">${m.sharpe}</div></div>
+    `
+  }
+
+  function renderLegend(active) {
+    document.getElementById('legend').innerHTML = active.map(f =>
+      `<span class="legend-item"><span class="legend-dot" style="background:${f.color}"></span>${f.name} <span style="color:var(--hint)">(${f.broker_name})</span></span>`
+    ).join('')
+  }
+
+  function renderTable(active, allRows) {
+    const tbody = document.getElementById('perf-body')
+    tbody.innerHTML = ''
+    active.forEach((f, i) => {
+      const m = calcMetrics(allRows[i], selectedYears)
+      if (!m) return
+      const tr = document.createElement('tr')
+      tr.innerHTML = `
+        <td><span class="dot" style="background:${f.color}"></span>${f.name}<br><span style="color:var(--hint);font-size:0.65rem">${f.broker_name}</span></td>
+        <td class="${parseFloat(m.total)>=0?'pos':'neg'}">${parseFloat(m.total)>=0?'+':''}${m.total}%</td>
+        <td class="${parseFloat(m.ann)>=0?'pos':'neg'}">${parseFloat(m.ann)>=0?'+':''}${m.ann}%</td>
+        <td class="pos">${m.best!=='—'?'+':''}${m.best}${m.best!=='—'?'%':''}</td>
+        <td class="neg">${m.worst}${m.worst!=='—'?'%':''}</td>
+        <td>${m.vol}%</td>
+        <td>${m.sharpe}</td>
+      `
+      tbody.appendChild(tr)
+    })
+  }
+
+  function renderChart(active, allRows) {
+    const canvas = document.getElementById('mainChart')
+    if (chartInstance) { chartInstance.destroy(); chartInstance = null }
+
+    if (viewMode === 'annual') {
+      const allLabelsSet = new Set()
+      const perFund = active.map((f, i) => { const r = annualData(allRows[i]); r.labels.forEach(l => allLabelsSet.add(l)); return r })
+      const labels = [...allLabelsSet].sort()
+      const datasets = active.map((f, i) => {
+        const { labels: fl, data: fd } = perFund[i]
+        const dataMap = Object.fromEntries(fl.map((l, j) => [l, fd[j]]))
+        return {
+          label: f.name,
+          data: labels.map(l => dataMap[l] ?? null),
+          backgroundColor: f.color + 'bb',
+          borderColor: f.color,
+          borderWidth: 1,
+          borderRadius: 3,
+        }
+      })
+      chartInstance = new Chart(canvas, {
+        type: 'bar',
+        data: { labels, datasets },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { ticks: { callback: v => v + '%', font: { size: 11 }, color: '#9b9b96' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+            x: { ticks: { font: { size: 11 }, color: '#9b9b96' }, grid: { display: false } }
+          }
+        }
+      })
+      return
+    }
+
+    // Build a union of all dates across all funds, sorted ascending
+    const dateSet = new Set()
+    allRows.forEach(rows => rows.forEach(r => dateSet.add(r.date)))
+    const labels = [...dateSet].sort()
+
+    // For each fund, build a date→price map then align to shared labels
+    const datasets = active.map((f, i) => {
+      const priceMap = {}
+      allRows[i].forEach(r => { priceMap[r.date] = r.price })
+
+      // Fill aligned prices (null where fund has no data for that date)
+      const aligned = labels.map(d => priceMap[d] ?? null)
+
+      // Find the first non-null price to use as the base for % / growth transforms
+      const firstPrice = aligned.find(v => v !== null) ?? 1
+
+      let data
+      if (viewMode === 'price') {
+        data = aligned.map(v => v === null ? null : +v.toFixed(4))
+      } else if (viewMode === 'growth') {
+        data = aligned.map(v => v === null ? null : +((v / firstPrice) * 10000).toFixed(2))
+      } else {
+        data = aligned.map(v => v === null ? null : +(((v / firstPrice) - 1) * 100).toFixed(2))
+      }
+
+      return {
+        label: f.name,
+        data,
+        borderColor: f.color,
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.3,
+        spanGaps: false,
+      }
+    })
+
+    const yFmt = v => viewMode === 'price' ? '$' + v.toFixed(2) : viewMode === 'growth' ? '$' + v.toLocaleString() : v.toFixed(1) + '%'
+    const ttFmt = ctx => {
+      const v = ctx.parsed.y
+      if (viewMode === 'price') return ` ${ctx.dataset.label}: $${v.toFixed(2)}`
+      if (viewMode === 'growth') return ` ${ctx.dataset.label}: $${v.toLocaleString()}`
+      return ` ${ctx.dataset.label}: ${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
+    }
+
+    chartInstance = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: ttFmt } }
+        },
+        scales: {
+          y: { ticks: { callback: yFmt, font: { size: 11 }, color: '#9b9b96' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+          x: { ticks: { autoSkip: true, maxTicksLimit: 10, font: { size: 10 }, color: '#9b9b96' }, grid: { display: false } }
+        }
+      }
+    })
+  }
+
+  // ── Main render ───────────────────────────────────────────────────────────
+  async function render() {
+    renderPills()
+
+    const active = FUNDS.filter(f => selectedFunds.has(f.id))
+    if (active.length === 0) return
+
+    const loading = document.getElementById('loading')
+    const errEl = document.getElementById('error-msg')
+    loading.classList.remove('hidden')
+    errEl.classList.add('hidden')
+
+    let allRows
+    try {
+      allRows = await Promise.all(active.map(f => fetchPrices(f.id, selectedYears)))
+    } catch (err) {
+      loading.classList.add('hidden')
+      errEl.textContent = 'Error fetching data: ' + err.message
+      errEl.classList.remove('hidden')
+      return
+    }
+
+    loading.classList.add('hidden')
+
+    const primaryRows = allRows[0] || []
+    renderMetrics(active[0], primaryRows)
+    renderLegend(active)
+    renderChart(active, allRows)
+    renderTable(active, allRows)
+  }
+
+  // ── Wire controls ─────────────────────────────────────────────────────────
+  document.querySelectorAll('.rbtn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.rbtn').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      selectedYears = parseInt(btn.dataset.y)
+      cache = {}
+      render()
+    })
+  })
+
+  document.getElementById('view-select').addEventListener('change', e => {
+    viewMode = e.target.value
+    render()
+  })
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  async function init() {
+    const ok = await loadFundsAndBrokers()
+    if (ok) render()
+  }
+
+  init()
+</script>
+</body>
+</html>
