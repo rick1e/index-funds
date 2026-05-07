@@ -161,8 +161,8 @@
       border-color: transparent;
     }
     .pill.active + .pill { border-top-color: transparent; }
-    .pill-inner { display: flex; flex-direction: column; gap: 2px; }
-    .pill-name { font-size: 0.82rem; font-weight: bold; letter-spacing: 0.01em; }
+    .pill-inner { display: flex; flex-direction: column; gap: 2px; width: 80%; }
+    .pill-name { font-size: 0.82rem; font-weight: bold; letter-spacing: 0.01em; overflow-wrap: break-word; }
     .pill-sub  { font-size: 0.68rem; opacity: 0.7; font-family: 'Courier New', monospace; }
     .pill-icon {
       width: 22px; height: 22px;
@@ -262,6 +262,7 @@
       color: var(--hint);
       margin-bottom: 6px;
       font-family: 'Courier New', monospace;
+      overflow-wrap: break-word;
     }
 
     .mcard-val {
@@ -491,7 +492,7 @@
   let BROKERS = []      // loaded from DB: { id, name }
   let selectedFunds = new Set()
   let selectedYears = 3
-  let viewMode = 'price'
+  let viewMode = 'return'
   let chartInstance = null
   let cache = {}
 
@@ -953,7 +954,7 @@
         borderWidth: 1.5,
         pointRadius: 0,
         tension: 0.3,
-        spanGaps: false,
+        spanGaps: true,
       }
     })
 
